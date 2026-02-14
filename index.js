@@ -25,13 +25,15 @@ let jogadoresEmFila = new Set();
 let contador = 1;
 
 /* =========================
-   BOT ONLINE
+   READY
 ========================= */
 
 client.once("ready", async () => {
   console.log(`Bot online como ${client.user.tag}`);
 
   const commands = [
+
+    // CRIAR FILA
     new SlashCommandBuilder()
       .setName("criarfila")
       .setDescription("Criar nova fila")
@@ -47,13 +49,26 @@ client.once("ready", async () => {
           ))
       .addStringOption(option =>
         option.setName("modo")
-          .setDescription("Modo da partida")
+          .setDescription("Modo")
           .setRequired(true))
       .addStringOption(option =>
         option.setName("valor")
-          .setDescription("Valor da aposta")
+          .setDescription("Valor")
           .setRequired(true))
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+      .toJSON(),
+
+    // REMOVER MAPA
+    new SlashCommandBuilder()
+      .setName("removermapa")
+      .setDescription("Remover uma fila pelo número")
+      .addIntegerOption(option =>
+        option.setName("numero")
+          .setDescription("Número da fila")
+          .setRequired(true))
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON()
+
   ];
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -75,53 +90,76 @@ client.on("interactionCreate", async (interaction) => {
 
     if (interaction.isChatInputCommand()) {
 
-      if (!interaction.member.roles.cache.some(r => r.name === "ADM")) {
-        return interaction.reply({ content: "❌ Apenas ADM pode usar.", ephemeral: true });
+      if (interaction.commandName === "criarfila") {
+
+        const tipo = interaction.options.getString("tipo");
+        const modo = interaction.options.getString("modo");
+        const valor = interaction.options.getString("valor");
+
+        let limite = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 }[tipo];
+
+        const idFila = `fila_${contador}`;
+
+        filas[idFila] = {
+          jogadores: [],
+          limite,
+          modo,
+          valor,
+          numero: contador
+        };
+
+        const embed = new EmbedBuilder()
+          .setTitle(`🎮 Fila ${contador}`)
+          .addFields(
+            { name: "Modo", value: modo, inline: true },
+            { name: "Valor", value: valor, inline: true },
+            { name: "Vagas", value: `0/${limite}` }
+          )
+          .setColor("Blue");
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`entrar_${idFila}`)
+            .setLabel("Entrar")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`sair_${idFila}`)
+            .setLabel("Sair")
+            .setStyle(ButtonStyle.Danger)
+        );
+
+        contador++;
+
+        return interaction.reply({ embeds: [embed], components: [row] });
       }
 
-      const tipo = interaction.options.getString("tipo");
-      const modo = interaction.options.getString("modo");
-      const valor = interaction.options.getString("valor");
+      /* =========================
+         REMOVER MAPA
+      ========================= */
 
-      let limite = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 }[tipo];
+      if (interaction.commandName === "removermapa") {
 
-      const idFila = `fila_${contador}`;
+        const numero = interaction.options.getInteger("numero");
 
-      filas[idFila] = {
-        jogadores: [],
-        limite,
-        modo,
-        valor,
-        numero: contador
-      };
+        const idFila = Object.keys(filas).find(
+          key => filas[key].numero === numero
+        );
 
-      const embed = new EmbedBuilder()
-        .setTitle(`🎮 Fila ${contador}`)
-        .addFields(
-          { name: "Modo", value: modo, inline: true },
-          { name: "Valor", value: valor, inline: true },
-          { name: "Vagas", value: `0/${limite}` }
-        )
-        .setColor("Blue");
+        if (!idFila) {
+          return interaction.reply({ content: "❌ Fila não encontrada.", ephemeral: true });
+        }
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`entrar_${idFila}`)
-          .setLabel("Entrar")
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(`sair_${idFila}`)
-          .setLabel("Sair")
-          .setStyle(ButtonStyle.Danger)
-      );
+        // liberar jogadores
+        filas[idFila].jogadores.forEach(id => jogadoresEmFila.delete(id));
 
-      contador++;
+        delete filas[idFila];
 
-      return interaction.reply({ embeds: [embed], components: [row] });
+        return interaction.reply({ content: `✅ Fila ${numero} removida com sucesso.` });
+      }
     }
 
     /* =========================
-       ENTRAR / SAIR FILA
+       BOTÕES FILA
     ========================= */
 
     if (
@@ -142,6 +180,7 @@ client.on("interactionCreate", async (interaction) => {
       const userId = interaction.user.id;
 
       if (acao === "entrar") {
+
         if (jogadoresEmFila.has(userId)) return;
 
         fila.jogadores.push(userId);
@@ -200,12 +239,15 @@ client.on("interactionCreate", async (interaction) => {
           components: [confirmRow]
         });
 
+        // 🔥 REMOVE TODOS DA FILA (CORREÇÃO DO BUG)
         fila.jogadores.forEach(id => jogadoresEmFila.delete(id));
+
+        delete filas[idFila];
       }
     }
 
     /* =========================
-       BOTÃO CONFIRMAR PRESENÇA
+       BOTÃO CONFIRMAR
     ========================= */
 
     if (interaction.isButton() && interaction.customId.startsWith("confirmar_")) {
