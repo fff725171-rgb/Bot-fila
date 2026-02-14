@@ -17,17 +17,12 @@ const client = new Client({
 
 const TOKEN = process.env.TOKEN;
 
-let filaAtual = [];
-let limiteFila = 0;
-let contadorSalas = 1;
-let criadorFila = null;
-let modoAtual = "";
-let valorAtual = "";
+let filas = {};
+let contador = 1;
 
 client.once("ready", async () => {
   console.log(`Bot online como ${client.user.tag}`);
 
-  // Registrar comandos automaticamente
   const commands = [
     new SlashCommandBuilder()
       .setName("criarfila")
@@ -59,11 +54,7 @@ client.once("ready", async () => {
   ];
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
-
-  await rest.put(
-    Routes.applicationCommands(client.user.id),
-    { body: commands }
-  );
+  await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
   console.log("Comandos registrados.");
 });
@@ -72,101 +63,104 @@ client.on("interactionCreate", async (interaction) => {
 
   if (interaction.isChatInputCommand()) {
 
-    // 🔹 Criar fila
+    if (!interaction.member.roles.cache.some(r => r.name === "ADM")) {
+      return interaction.reply({ content: "❌ Apenas ADM pode usar.", ephemeral: true });
+    }
+
     if (interaction.commandName === "criarfila") {
 
-      if (!interaction.member.roles.cache.some(r => r.name === "ADM")) {
-        return interaction.reply({ content: "❌ Apenas ADM pode usar.", ephemeral: true });
-      }
-
       const tipo = interaction.options.getString("tipo");
-      modoAtual = interaction.options.getString("modo");
-      valorAtual = interaction.options.getString("valor");
+      const modo = interaction.options.getString("modo");
+      const valor = interaction.options.getString("valor");
 
-      criadorFila = interaction.user.id;
+      let limite = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 }[tipo];
 
-      if (tipo === "1v1") limiteFila = 2;
-      if (tipo === "2v2") limiteFila = 4;
-      if (tipo === "3v3") limiteFila = 6;
-      if (tipo === "4v4") limiteFila = 8;
+      const idFila = `fila_${contador}`;
 
-      filaAtual = [];
+      filas[idFila] = {
+        jogadores: [],
+        limite,
+        modo,
+        valor,
+        numero: contador
+      };
 
       const embed = new EmbedBuilder()
-        .setTitle("🎮 Nova Fila")
+        .setTitle(`🎮 Fila ${contador}`)
         .addFields(
-          { name: "Modo", value: modoAtual, inline: true },
-          { name: "Valor", value: valorAtual, inline: true },
-          { name: "Vagas", value: `0/${limiteFila}` }
+          { name: "Modo", value: modo, inline: true },
+          { name: "Valor", value: valor, inline: true },
+          { name: "Vagas", value: `0/${limite}` }
         )
         .setColor("Blue");
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId("entrar")
-          .setLabel("Entrar na Fila")
+          .setCustomId(`entrar_${idFila}`)
+          .setLabel("Entrar")
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
-          .setCustomId("sair")
+          .setCustomId(`sair_${idFila}`)
           .setLabel("Sair")
           .setStyle(ButtonStyle.Danger)
       );
 
+      contador++;
+
       return interaction.reply({ embeds: [embed], components: [row] });
     }
 
-    // 🔹 Stop sala
     if (interaction.commandName === "stop_sala") {
-
-      if (!interaction.member.roles.cache.some(r => r.name === "ADM")) {
-        return interaction.reply({ content: "❌ Apenas ADM pode usar.", ephemeral: true });
-      }
-
       await interaction.channel.delete();
     }
   }
 
   if (interaction.isButton()) {
 
-    if (interaction.customId === "entrar") {
-      if (!filaAtual.includes(interaction.user.id)) {
-        filaAtual.push(interaction.user.id);
+    const [acao, idFila] = interaction.customId.split("_");
+
+    if (!filas[idFila]) return;
+
+    let fila = filas[idFila];
+
+    if (acao === "entrar") {
+      if (!fila.jogadores.includes(interaction.user.id)) {
+        fila.jogadores.push(interaction.user.id);
       }
     }
 
-    if (interaction.customId === "sair") {
-      filaAtual = filaAtual.filter(id => id !== interaction.user.id);
+    if (acao === "sair") {
+      fila.jogadores = fila.jogadores.filter(id => id !== interaction.user.id);
     }
 
-    const jogadores = filaAtual.map(id => `<@${id}>`).join("\n") || "Ninguém";
+    const jogadores = fila.jogadores.map(id => `<@${id}>`).join("\n") || "Ninguém";
 
     const embed = new EmbedBuilder()
-      .setTitle("🎮 Fila Ativa")
+      .setTitle(`🎮 Fila ${fila.numero}`)
       .addFields(
-        { name: "Modo", value: modoAtual, inline: true },
-        { name: "Valor", value: valorAtual, inline: true },
+        { name: "Modo", value: fila.modo, inline: true },
+        { name: "Valor", value: fila.valor, inline: true },
         { name: "Jogadores", value: jogadores },
-        { name: "Vagas", value: `${filaAtual.length}/${limiteFila}` }
+        { name: "Vagas", value: `${fila.jogadores.length}/${fila.limite}` }
       )
       .setColor("Green");
 
     await interaction.update({ embeds: [embed] });
 
-    // 🔥 Quando encher
-    if (filaAtual.length === limiteFila) {
+    if (fila.jogadores.length === fila.limite) {
 
       const guild = interaction.guild;
 
       const canal = await guild.channels.create({
-        name: `fila-${contadorSalas}`,
+        name: `fila-${fila.numero}`,
         type: 0,
         permissionOverwrites: [
           {
             id: guild.id,
             deny: [PermissionFlagsBits.ViewChannel]
           },
-          ...filaAtual.map(id => ({
-            id: id,
+          ...fila.jogadores.map(id => ({
+            id,
             allow: [PermissionFlagsBits.ViewChannel]
           })),
           {
@@ -178,12 +172,7 @@ client.on("interactionCreate", async (interaction) => {
 
       canal.send("🔥 Sala criada! Boa partida!");
 
-      if (!filaAtual.includes(criadorFila)) {
-        canal.send(`<@${criadorFila}> ⚠️ Você criou a fila e não entrou!`);
-      }
-
-      filaAtual = [];
-      contadorSalas++;
+      delete filas[idFila];
     }
   }
 });
