@@ -121,12 +121,14 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     /* =========================
-       BOTÕES FILA
+       ENTRAR / SAIR FILA
     ========================= */
 
-    if (interaction.isButton() &&
-       (interaction.customId.startsWith("entrar_") ||
-        interaction.customId.startsWith("sair_"))) {
+    if (
+      interaction.isButton() &&
+      (interaction.customId.startsWith("entrar_") ||
+       interaction.customId.startsWith("sair_"))
+    ) {
 
       await interaction.deferUpdate();
 
@@ -140,7 +142,6 @@ client.on("interactionCreate", async (interaction) => {
       const userId = interaction.user.id;
 
       if (acao === "entrar") {
-
         if (jogadoresEmFila.has(userId)) return;
 
         fila.jogadores.push(userId);
@@ -168,7 +169,7 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.editReply({ embeds: [embed] });
 
       /* =========================
-         SE ENCHEU
+         SE FILA ENCHEU
       ========================= */
 
       if (fila.jogadores.length === fila.limite) {
@@ -187,17 +188,16 @@ client.on("interactionCreate", async (interaction) => {
           ]
         });
 
-        // BOTÃO BR PRA PARTIDA
-        const pagamentoRow = new ActionRowBuilder().addComponents(
+        const confirmRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId(`pagar_${fila.numero}`)
-            .setLabel("BR pra partida")
+            .setCustomId(`confirmar_${fila.numero}`)
+            .setLabel("Confirmar Presença")
             .setStyle(ButtonStyle.Success)
         );
 
         await canal.send({
           content: "🔥 Sala criada! Boa partida!",
-          components: [pagamentoRow]
+          components: [confirmRow]
         });
 
         fila.jogadores.forEach(id => jogadoresEmFila.delete(id));
@@ -205,10 +205,10 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     /* =========================
-       BOTÃO PAGAMENTO
+       BOTÃO CONFIRMAR PRESENÇA
     ========================= */
 
-    if (interaction.isButton() && interaction.customId.startsWith("pagar_")) {
+    if (interaction.isButton() && interaction.customId.startsWith("confirmar_")) {
 
       await interaction.reply({
         content:
@@ -217,8 +217,7 @@ client.on("interactionCreate", async (interaction) => {
 💰 PIX:
 05b2ad86-2956-4b32-822b-9624cd731c33
 
-📩 Envie o comprovante aqui e espere nossos ADM responder.
-Pode demorar porque nossa equipe é pequena.`,
+📩 Mande o comprovante aqui e espere o ADM ver.`,
         ephemeral: false
       });
 
