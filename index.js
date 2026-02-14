@@ -25,7 +25,7 @@ let jogadoresEmFila = new Set();
 let contador = 1;
 
 /* =========================
-   REGISTRAR COMANDOS
+   READY
 ========================= */
 
 client.once("ready", async () => {
@@ -53,19 +53,11 @@ client.once("ready", async () => {
         option.setName("valor")
           .setDescription("Valor da aposta")
           .setRequired(true))
-      .toJSON(),
-
-    new SlashCommandBuilder()
-      .setName("stop_sala")
-      .setDescription("Deletar sala atual")
       .toJSON()
   ];
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
-  await rest.put(
-    Routes.applicationCommands(client.user.id),
-    { body: commands }
-  );
+  await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
   console.log("Comandos registrados.");
 });
@@ -78,71 +70,61 @@ client.on("interactionCreate", async (interaction) => {
   try {
 
     /* =========================
-       COMANDOS
+       CRIAR FILA
     ========================= */
 
     if (interaction.isChatInputCommand()) {
 
       if (!interaction.member.roles.cache.some(r => r.name === "ADM")) {
-        return interaction.reply({
-          content: "❌ Apenas ADM pode usar.",
-          ephemeral: true
-        });
+        return interaction.reply({ content: "❌ Apenas ADM pode usar.", ephemeral: true });
       }
 
-      if (interaction.commandName === "criarfila") {
+      const tipo = interaction.options.getString("tipo");
+      const modo = interaction.options.getString("modo");
+      const valor = interaction.options.getString("valor");
 
-        const tipo = interaction.options.getString("tipo");
-        const modo = interaction.options.getString("modo");
-        const valor = interaction.options.getString("valor");
+      let limite = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 }[tipo];
 
-        let limite = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 }[tipo];
+      const idFila = `fila_${contador}`;
 
-        const idFila = `fila_${contador}`;
+      filas[idFila] = {
+        jogadores: [],
+        limite,
+        modo,
+        valor,
+        numero: contador
+      };
 
-        filas[idFila] = {
-          jogadores: [],
-          limite,
-          modo,
-          valor,
-          numero: contador
-        };
+      const embed = new EmbedBuilder()
+        .setTitle(`🎮 Fila ${contador}`)
+        .addFields(
+          { name: "Modo", value: modo, inline: true },
+          { name: "Valor", value: valor, inline: true },
+          { name: "Vagas", value: `0/${limite}` }
+        )
+        .setColor("Blue");
 
-        const embed = new EmbedBuilder()
-          .setTitle(`🎮 Fila ${contador}`)
-          .addFields(
-            { name: "Modo", value: modo, inline: true },
-            { name: "Valor", value: valor, inline: true },
-            { name: "Vagas", value: `0/${limite}` }
-          )
-          .setColor("Blue");
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`entrar_${idFila}`)
+          .setLabel("Entrar")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`sair_${idFila}`)
+          .setLabel("Sair")
+          .setStyle(ButtonStyle.Danger)
+      );
 
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`entrar_${idFila}`)
-            .setLabel("Entrar")
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`sair_${idFila}`)
-            .setLabel("Sair")
-            .setStyle(ButtonStyle.Danger)
-        );
+      contador++;
 
-        contador++;
-
-        return interaction.reply({ embeds: [embed], components: [row] });
-      }
-
-      if (interaction.commandName === "stop_sala") {
-        await interaction.channel.delete();
-      }
+      return interaction.reply({ embeds: [embed], components: [row] });
     }
 
     /* =========================
-       BOTÕES
+       BOTÕES FILA
     ========================= */
 
-    if (interaction.isButton()) {
+    if (interaction.isButton() && interaction.customId.startsWith("entrar_") || interaction.customId.startsWith("sair_")) {
 
       await interaction.deferUpdate();
 
@@ -155,15 +137,12 @@ client.on("interactionCreate", async (interaction) => {
       let fila = filas[idFila];
       const userId = interaction.user.id;
 
-      // BLOQUEAR ENTRAR EM DUAS FILAS
       if (acao === "entrar") {
 
         if (jogadoresEmFila.has(userId)) return;
 
-        if (!fila.jogadores.includes(userId)) {
-          fila.jogadores.push(userId);
-          jogadoresEmFila.add(userId);
-        }
+        fila.jogadores.push(userId);
+        jogadoresEmFila.add(userId);
       }
 
       if (acao === "sair") {
@@ -187,43 +166,75 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.editReply({ embeds: [embed] });
 
       /* =========================
-         SE ENCHEU → CRIAR SALA
+         SE ENCHEU
       ========================= */
 
       if (fila.jogadores.length === fila.limite) {
 
-        const guild = interaction.guild;
+        // DESATIVAR BOTÕES
+        await interaction.message.edit({ components: [] });
 
-        const cargoADM = guild.roles.cache.find(r => r.name === "ADM");
+        const guild = interaction.guild;
 
         const canal = await guild.channels.create({
           name: `fila-${fila.numero}`,
           type: 0,
           permissionOverwrites: [
-            {
-              id: guild.id,
-              deny: [PermissionFlagsBits.ViewChannel]
-            },
+            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
             ...fila.jogadores.map(id => ({
               id,
               allow: [PermissionFlagsBits.ViewChannel]
-            })),
-            ...(cargoADM ? [{
-              id: cargoADM.id,
-              allow: [PermissionFlagsBits.ViewChannel]
-            }] : [])
+            }))
           ]
         });
 
-        await canal.send("🔥 Sala criada! Boa partida!");
+        // BOTÃO CONFIRMAR
+        const confirmRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`confirmar_${fila.numero}`)
+            .setLabel("Confirmar Presença")
+            .setStyle(ButtonStyle.Primary)
+        );
+
+        await canal.send({
+          content: "⚔️ Clique em **Confirmar Presença** para iniciar!",
+          components: [confirmRow]
+        });
+
+        fila.confirmados = [];
 
         fila.jogadores.forEach(id => jogadoresEmFila.delete(id));
-        delete filas[idFila];
+      }
+    }
+
+    /* =========================
+       BOTÃO CONFIRMAR
+    ========================= */
+
+    if (interaction.isButton() && interaction.customId.startsWith("confirmar_")) {
+
+      await interaction.deferReply({ ephemeral: true });
+
+      const numero = interaction.customId.split("_")[1];
+
+      const fila = Object.values(filas).find(f => f.numero == numero);
+      if (!fila) return;
+
+      const userId = interaction.user.id;
+
+      if (!fila.confirmados.includes(userId)) {
+        fila.confirmados.push(userId);
+      }
+
+      await interaction.editReply({ content: "✅ Presença confirmada!" });
+
+      if (fila.confirmados.length === fila.limite) {
+        await interaction.channel.send("🔥 BR COMEÇA ESSA PARTIDA 🔥");
       }
     }
 
   } catch (err) {
-    console.error("Erro capturado:", err);
+    console.error("Erro:", err);
   }
 });
 
