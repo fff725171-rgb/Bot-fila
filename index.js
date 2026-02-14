@@ -12,13 +12,21 @@ import {
 } from "discord.js";
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ]
 });
 
 const TOKEN = process.env.TOKEN;
 
 let filas = {};
+let jogadoresEmFila = new Set();
 let contador = 1;
+
+/* =========================
+   REGISTRAR COMANDOS
+========================= */
 
 client.once("ready", async () => {
   console.log(`Bot online como ${client.user.tag}`);
@@ -54,126 +62,168 @@ client.once("ready", async () => {
   ];
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
-  await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+  await rest.put(
+    Routes.applicationCommands(client.user.id),
+    { body: commands }
+  );
 
   console.log("Comandos registrados.");
 });
 
+/* =========================
+   INTERAÇÕES
+========================= */
+
 client.on("interactionCreate", async (interaction) => {
+  try {
 
-  if (interaction.isChatInputCommand()) {
+    /* =========================
+       COMANDOS
+    ========================= */
 
-    if (!interaction.member.roles.cache.some(r => r.name === "ADM")) {
-      return interaction.reply({ content: "❌ Apenas ADM pode usar.", ephemeral: true });
-    }
+    if (interaction.isChatInputCommand()) {
 
-    if (interaction.commandName === "criarfila") {
+      if (!interaction.member.roles.cache.some(r => r.name === "ADM")) {
+        return interaction.reply({
+          content: "❌ Apenas ADM pode usar.",
+          ephemeral: true
+        });
+      }
 
-      const tipo = interaction.options.getString("tipo");
-      const modo = interaction.options.getString("modo");
-      const valor = interaction.options.getString("valor");
+      if (interaction.commandName === "criarfila") {
 
-      let limite = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 }[tipo];
+        const tipo = interaction.options.getString("tipo");
+        const modo = interaction.options.getString("modo");
+        const valor = interaction.options.getString("valor");
 
-      const idFila = `fila_${contador}`;
+        let limite = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 }[tipo];
 
-      filas[idFila] = {
-        jogadores: [],
-        limite,
-        modo,
-        valor,
-        numero: contador
-      };
+        const idFila = `fila_${contador}`;
 
-      const embed = new EmbedBuilder()
-        .setTitle(`🎮 Fila ${contador}`)
-        .addFields(
-          { name: "Modo", value: modo, inline: true },
-          { name: "Valor", value: valor, inline: true },
-          { name: "Vagas", value: `0/${limite}` }
-        )
-        .setColor("Blue");
+        filas[idFila] = {
+          jogadores: [],
+          limite,
+          modo,
+          valor,
+          numero: contador
+        };
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`entrar_${idFila}`)
-          .setLabel("Entrar")
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(`sair_${idFila}`)
-          .setLabel("Sair")
-          .setStyle(ButtonStyle.Danger)
-      );
+        const embed = new EmbedBuilder()
+          .setTitle(`🎮 Fila ${contador}`)
+          .addFields(
+            { name: "Modo", value: modo, inline: true },
+            { name: "Valor", value: valor, inline: true },
+            { name: "Vagas", value: `0/${limite}` }
+          )
+          .setColor("Blue");
 
-      contador++;
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`entrar_${idFila}`)
+            .setLabel("Entrar")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`sair_${idFila}`)
+            .setLabel("Sair")
+            .setStyle(ButtonStyle.Danger)
+        );
 
-      return interaction.reply({ embeds: [embed], components: [row] });
-    }
+        contador++;
 
-    if (interaction.commandName === "stop_sala") {
-      await interaction.channel.delete();
-    }
-  }
+        return interaction.reply({ embeds: [embed], components: [row] });
+      }
 
-  if (interaction.isButton()) {
-
-    const [acao, idFila] = interaction.customId.split("_");
-
-    if (!filas[idFila]) return;
-
-    let fila = filas[idFila];
-
-    if (acao === "entrar") {
-      if (!fila.jogadores.includes(interaction.user.id)) {
-        fila.jogadores.push(interaction.user.id);
+      if (interaction.commandName === "stop_sala") {
+        await interaction.channel.delete();
       }
     }
 
-    if (acao === "sair") {
-      fila.jogadores = fila.jogadores.filter(id => id !== interaction.user.id);
+    /* =========================
+       BOTÕES
+    ========================= */
+
+    if (interaction.isButton()) {
+
+      await interaction.deferUpdate();
+
+      const partes = interaction.customId.split("_");
+      const acao = partes[0];
+      const idFila = partes[1] + "_" + partes[2];
+
+      if (!filas[idFila]) return;
+
+      let fila = filas[idFila];
+      const userId = interaction.user.id;
+
+      // BLOQUEAR ENTRAR EM DUAS FILAS
+      if (acao === "entrar") {
+
+        if (jogadoresEmFila.has(userId)) return;
+
+        if (!fila.jogadores.includes(userId)) {
+          fila.jogadores.push(userId);
+          jogadoresEmFila.add(userId);
+        }
+      }
+
+      if (acao === "sair") {
+        fila.jogadores = fila.jogadores.filter(id => id !== userId);
+        jogadoresEmFila.delete(userId);
+      }
+
+      const jogadoresTexto =
+        fila.jogadores.map(id => `<@${id}>`).join("\n") || "Ninguém";
+
+      const embed = new EmbedBuilder()
+        .setTitle(`🎮 Fila ${fila.numero}`)
+        .addFields(
+          { name: "Modo", value: fila.modo, inline: true },
+          { name: "Valor", value: fila.valor, inline: true },
+          { name: "Jogadores", value: jogadoresTexto },
+          { name: "Vagas", value: `${fila.jogadores.length}/${fila.limite}` }
+        )
+        .setColor("Green");
+
+      await interaction.editReply({ embeds: [embed] });
+
+      /* =========================
+         SE ENCHEU → CRIAR SALA
+      ========================= */
+
+      if (fila.jogadores.length === fila.limite) {
+
+        const guild = interaction.guild;
+
+        const cargoADM = guild.roles.cache.find(r => r.name === "ADM");
+
+        const canal = await guild.channels.create({
+          name: `fila-${fila.numero}`,
+          type: 0,
+          permissionOverwrites: [
+            {
+              id: guild.id,
+              deny: [PermissionFlagsBits.ViewChannel]
+            },
+            ...fila.jogadores.map(id => ({
+              id,
+              allow: [PermissionFlagsBits.ViewChannel]
+            })),
+            ...(cargoADM ? [{
+              id: cargoADM.id,
+              allow: [PermissionFlagsBits.ViewChannel]
+            }] : [])
+          ]
+        });
+
+        await canal.send("🔥 Sala criada! Boa partida!");
+
+        fila.jogadores.forEach(id => jogadoresEmFila.delete(id));
+        delete filas[idFila];
+      }
     }
 
-    const jogadores = fila.jogadores.map(id => `<@${id}>`).join("\n") || "Ninguém";
-
-    const embed = new EmbedBuilder()
-      .setTitle(`🎮 Fila ${fila.numero}`)
-      .addFields(
-        { name: "Modo", value: fila.modo, inline: true },
-        { name: "Valor", value: fila.valor, inline: true },
-        { name: "Jogadores", value: jogadores },
-        { name: "Vagas", value: `${fila.jogadores.length}/${fila.limite}` }
-      )
-      .setColor("Green");
-
-    await interaction.update({ embeds: [embed] });
-
-    if (fila.jogadores.length === fila.limite) {
-
-      const guild = interaction.guild;
-
-      const canal = await guild.channels.create({
-        name: `fila-${fila.numero}`,
-        type: 0,
-        permissionOverwrites: [
-          {
-            id: guild.id,
-            deny: [PermissionFlagsBits.ViewChannel]
-          },
-          ...fila.jogadores.map(id => ({
-            id,
-            allow: [PermissionFlagsBits.ViewChannel]
-          })),
-          {
-            id: guild.roles.cache.find(r => r.name === "ADM").id,
-            allow: [PermissionFlagsBits.ViewChannel]
-          }
-        ]
-      });
-
-      canal.send("🔥 Sala criada! Boa partida!");
-
-      delete filas[idFila];
-    }
+  } catch (err) {
+    console.error("Erro capturado:", err);
   }
 });
 
