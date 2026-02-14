@@ -8,29 +8,35 @@ import {
   SlashCommandBuilder,
   PermissionFlagsBits,
   REST,
-  Routes
+  Routes,
+  ChannelType
 } from "discord.js";
 
 const client = new Client({
   intents: [
-    GatewayIntentBits.Guilds]
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ]
 });
 
 const TOKEN = process.env.TOKEN;
+
+/* =========================
+   SISTEMA
+========================= */
 
 let filas = {};
 let jogadoresEmFila = new Set();
 let contador = 1;
 
 /* =========================
-   READY
+   BOT ONLINE
 ========================= */
 
 client.once("ready", async () => {
   console.log(`Bot online como ${client.user.tag}`);
 
   const commands = [
-
     new SlashCommandBuilder()
       .setName("criarfila")
       .setDescription("Criar nova fila")
@@ -46,25 +52,13 @@ client.once("ready", async () => {
           ))
       .addStringOption(option =>
         option.setName("modo")
-          .setDescription("Modo")
+          .setDescription("Modo da partida")
           .setRequired(true))
       .addStringOption(option =>
         option.setName("valor")
-          .setDescription("Valor")
+          .setDescription("Valor da aposta")
           .setRequired(true))
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-      .toJSON(),
-
-    new SlashCommandBuilder()
-      .setName("removermapa")
-      .setDescription("Remover uma fila")
-      .addIntegerOption(option =>
-        option.setName("numero")
-          .setDescription("Número da fila")
-          .setRequired(true))
-      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON()
-
   ];
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -81,184 +75,165 @@ client.on("interactionCreate", async (interaction) => {
   try {
 
     /* =========================
-       CRIAR FILA
+       CRIAR FILA (SÓ ADM)
     ========================= */
 
     if (interaction.isChatInputCommand()) {
 
-      if (interaction.commandName === "criarfila") {
-
-        const tipo = interaction.options.getString("tipo");
-        const modo = interaction.options.getString("modo");
-        const valor = interaction.options.getString("valor");
-
-        let limite = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 }[tipo];
-
-        const idFila = `fila_${contador}`;
-
-        filas[idFila] = {
-          jogadores: [],
-          limite,
-          modo,
-          valor,
-          numero: contador,
-          ativa: true
-        };
-
-        const embed = new EmbedBuilder()
-          .setTitle(`🎮 Fila ${contador}`)
-          .addFields(
-            { name: "Modo", value: modo, inline: true },
-            { name: "Valor", value: valor, inline: true },
-            { name: "Vagas", value: `0/${limite}` }
-          )
-          .setColor("Blue");
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`entrar_${idFila}`)
-            .setLabel("Entrar")
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`sair_${idFila}`)
-            .setLabel("Sair")
-            .setStyle(ButtonStyle.Danger)
-        );
-
-        contador++;
-
-        return interaction.reply({ embeds: [embed], components: [row] });
+      if (!interaction.member.roles.cache.some(r => r.name === "ADM")) {
+        return interaction.reply({ content: "❌ Apenas ADM pode usar.", ephemeral: true });
       }
 
-      /* =========================
-         REMOVER MAPA
-      ========================= */
+      const tipo = interaction.options.getString("tipo");
+      const modo = interaction.options.getString("modo");
+      const valor = interaction.options.getString("valor");
 
-      if (interaction.commandName === "removermapa") {
+      const limite = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 }[tipo];
+      const idFila = `fila_${contador}`;
 
-        const numero = interaction.options.getInteger("numero");
-
-        const idFila = Object.keys(filas).find(
-          key => filas[key].numero === numero
-        );
-
-        if (!idFila) {
-          return interaction.reply({ content: "❌ Fila não encontrada.", ephemeral: true });
-        }
-
-        filas[idFila].jogadores.forEach(id => jogadoresEmFila.delete(id));
-
-        delete filas[idFila];
-
-        return interaction.reply({ content: `✅ Fila ${numero} removida.` });
-      }
-    }
-
-    /* =========================
-       ENTRAR / SAIR FILA
-    ========================= */
-
-    if (
-      interaction.isButton() &&
-      (interaction.customId.startsWith("entrar_") ||
-       interaction.customId.startsWith("sair_"))
-    ) {
-
-      await interaction.deferUpdate();
-
-      const partes = interaction.customId.split("_");
-      const acao = partes[0];
-      const idFila = partes[1] + "_" + partes[2];
-
-      let fila = filas[idFila];
-      if (!fila || !fila.ativa) return;
-
-      const userId = interaction.user.id;
-
-      if (acao === "entrar") {
-        if (jogadoresEmFila.has(userId)) return;
-
-        fila.jogadores.push(userId);
-        jogadoresEmFila.add(userId);
-      }
-
-      if (acao === "sair") {
-        fila.jogadores = fila.jogadores.filter(id => id !== userId);
-        jogadoresEmFila.delete(userId);
-      }
-
-      const jogadoresTexto =
-        fila.jogadores.map(id => `<@${id}>`).join("\n") || "Ninguém";
+      filas[idFila] = {
+        jogadores: [],
+        limite,
+        modo,
+        valor,
+        numero: contador
+      };
 
       const embed = new EmbedBuilder()
-        .setTitle(`🎮 Fila ${fila.numero}`)
+        .setTitle(`🎮 Fila ${contador}`)
         .addFields(
-          { name: "Modo", value: fila.modo, inline: true },
-          { name: "Valor", value: fila.valor, inline: true },
-          { name: "Jogadores", value: jogadoresTexto },
-          { name: "Vagas", value: `${fila.jogadores.length}/${fila.limite}` }
+          { name: "Modo", value: modo, inline: true },
+          { name: "Valor", value: valor, inline: true },
+          { name: "Jogadores", value: "Ninguém" },
+          { name: "Vagas", value: `0/${limite}` }
         )
-        .setColor("Green");
+        .setColor("Blue");
 
-      await interaction.editReply({ embeds: [embed] });
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`entrar_${idFila}`)
+          .setLabel("Entrar")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`sair_${idFila}`)
+          .setLabel("Sair")
+          .setStyle(ButtonStyle.Danger)
+      );
 
-      /* =========================
-         SE FILA ENCHEU
-      ========================= */
+      contador++;
 
-      if (fila.jogadores.length === fila.limite) {
-
-        fila.ativa = false;
-
-        const guild = interaction.guild;
-
-        const canal = await guild.channels.create({
-          name: `fila-${fila.numero}`,
-          type: 0,
-          permissionOverwrites: [
-            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-            ...fila.jogadores.map(id => ({
-              id,
-              allow: [PermissionFlagsBits.ViewChannel]
-            }))
-          ]
-        });
-
-        const confirmRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`confirmar_${fila.numero}`)
-            .setLabel("Confirmar Presença")
-            .setStyle(ButtonStyle.Success)
-        );
-
-        await canal.send({
-          content: "🔥 Sala criada! Boa partida!",
-          components: [confirmRow]
-        });
-
-        fila.jogadores.forEach(id => jogadoresEmFila.delete(id));
-
-        await interaction.message.edit({ components: [] });
-      }
+      return interaction.reply({ embeds: [embed], components: [row] });
     }
 
     /* =========================
-       BOTÃO CONFIRMAR
+       BOTÕES ENTRAR / SAIR
     ========================= */
 
-    if (interaction.isButton() && interaction.customId.startsWith("confirmar_")) {
+    if (interaction.isButton()) {
 
-      await interaction.reply({
-        content:
-`🔥 BR PRA PARTIDA GALERA 🔥
+      if (interaction.customId.startsWith("entrar_") ||
+          interaction.customId.startsWith("sair_")) {
+
+        await interaction.deferUpdate();
+
+        const partes = interaction.customId.split("_");
+        const acao = partes[0];
+        const idFila = partes[1] + "_" + partes[2];
+
+        if (!filas[idFila]) return;
+
+        let fila = filas[idFila];
+        const userId = interaction.user.id;
+
+        /* ENTRAR */
+        if (acao === "entrar") {
+
+          if (jogadoresEmFila.has(userId)) return;
+
+          if (fila.jogadores.length >= fila.limite) return;
+
+          fila.jogadores.push(userId);
+          jogadoresEmFila.add(userId);
+        }
+
+        /* SAIR */
+        if (acao === "sair") {
+          fila.jogadores = fila.jogadores.filter(id => id !== userId);
+          jogadoresEmFila.delete(userId);
+        }
+
+        const jogadoresTexto =
+          fila.jogadores.map(id => `<@${id}>`).join("\n") || "Ninguém";
+
+        const embed = new EmbedBuilder()
+          .setTitle(`🎮 Fila ${fila.numero}`)
+          .addFields(
+            { name: "Modo", value: fila.modo, inline: true },
+            { name: "Valor", value: fila.valor, inline: true },
+            { name: "Jogadores", value: jogadoresTexto },
+            { name: "Vagas", value: `${fila.jogadores.length}/${fila.limite}` }
+          )
+          .setColor("Green");
+
+        await interaction.editReply({ embeds: [embed] });
+
+        /* =========================
+           SE FILA COMPLETAR
+        ========================= */
+
+        if (fila.jogadores.length === fila.limite) {
+
+          const guild = interaction.guild;
+
+          const canal = await guild.channels.create({
+            name: `fila-${fila.numero}`,
+            type: ChannelType.GuildText,
+            permissionOverwrites: [
+              { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+              ...fila.jogadores.map(id => ({
+                id,
+                allow: [PermissionFlagsBits.ViewChannel]
+              }))
+            ]
+          });
+
+          const confirmRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`confirmar_${fila.numero}`)
+              .setLabel("Confirmar Presença")
+              .setStyle(ButtonStyle.Success)
+          );
+
+          await canal.send({
+            content: "🔥 Sala criada! Confirmem presença abaixo.",
+            components: [confirmRow]
+          });
+
+          /* 🔥 REMOVE JOGADORES DA FILA GLOBAL */
+          fila.jogadores.forEach(id => jogadoresEmFila.delete(id));
+
+          /* 🔥 APAGA A FILA COMPLETAMENTE */
+          delete filas[idFila];
+        }
+      }
+
+      /* =========================
+         BOTÃO CONFIRMAR
+      ========================= */
+
+      if (interaction.customId.startsWith("confirmar_")) {
+
+        await interaction.reply({
+          content:
+`🔥 BR PRA PARTIDA 🔥
 
 💰 PIX:
 05b2ad86-2956-4b32-822b-9624cd731c33
 
-📩 Mande o comprovante aqui e espere o ADM ver.`,
-        ephemeral: false
-      });
-
+📩 Envie o comprovante aqui e aguarde o ADM.`,
+          ephemeral: false
+        });
+      }
     }
 
   } catch (err) {
