@@ -25,7 +25,7 @@ let jogadoresEmFila = new Set();
 let contador = 1;
 
 /* =========================
-   READY
+   BOT ONLINE
 ========================= */
 
 client.once("ready", async () => {
@@ -124,7 +124,9 @@ client.on("interactionCreate", async (interaction) => {
        BOTÕES FILA
     ========================= */
 
-    if (interaction.isButton() && interaction.customId.startsWith("entrar_") || interaction.customId.startsWith("sair_")) {
+    if (interaction.isButton() &&
+       (interaction.customId.startsWith("entrar_") ||
+        interaction.customId.startsWith("sair_"))) {
 
       await interaction.deferUpdate();
 
@@ -171,9 +173,6 @@ client.on("interactionCreate", async (interaction) => {
 
       if (fila.jogadores.length === fila.limite) {
 
-        // DESATIVAR BOTÕES
-        await interaction.message.edit({ components: [] });
-
         const guild = interaction.guild;
 
         const canal = await guild.channels.create({
@@ -188,49 +187,41 @@ client.on("interactionCreate", async (interaction) => {
           ]
         });
 
-        // BOTÃO CONFIRMAR
-        const confirmRow = new ActionRowBuilder().addComponents(
+        // BOTÃO BR PRA PARTIDA
+        const pagamentoRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId(`confirmar_${fila.numero}`)
-            .setLabel("Confirmar Presença")
-            .setStyle(ButtonStyle.Primary)
+            .setCustomId(`pagar_${fila.numero}`)
+            .setLabel("BR pra partida")
+            .setStyle(ButtonStyle.Success)
         );
 
         await canal.send({
-          content: "⚔️ Clique em **Confirmar Presença** para iniciar!",
-          components: [confirmRow]
+          content: "🔥 Sala criada! Boa partida!",
+          components: [pagamentoRow]
         });
-
-        fila.confirmados = [];
 
         fila.jogadores.forEach(id => jogadoresEmFila.delete(id));
       }
     }
 
     /* =========================
-       BOTÃO CONFIRMAR
+       BOTÃO PAGAMENTO
     ========================= */
 
-    if (interaction.isButton() && interaction.customId.startsWith("confirmar_")) {
+    if (interaction.isButton() && interaction.customId.startsWith("pagar_")) {
 
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.reply({
+        content:
+`🔥 BR PRA PARTIDA GALERA 🔥
 
-      const numero = interaction.customId.split("_")[1];
+💰 PIX:
+05b2ad86-2956-4b32-822b-9624cd731c33
 
-      const fila = Object.values(filas).find(f => f.numero == numero);
-      if (!fila) return;
+📩 Envie o comprovante aqui e espere nossos ADM responder.
+Pode demorar porque nossa equipe é pequena.`,
+        ephemeral: false
+      });
 
-      const userId = interaction.user.id;
-
-      if (!fila.confirmados.includes(userId)) {
-        fila.confirmados.push(userId);
-      }
-
-      await interaction.editReply({ content: "✅ Presença confirmada!" });
-
-      if (fila.confirmados.length === fila.limite) {
-        await interaction.channel.send("🔥 BR COMEÇA ESSA PARTIDA 🔥");
-      }
     }
 
   } catch (err) {
