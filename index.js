@@ -13,9 +13,7 @@ import {
 
 const client = new Client({
   intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers
-  ]
+    GatewayIntentBits.Guilds]
 });
 
 const TOKEN = process.env.TOKEN;
@@ -33,7 +31,6 @@ client.once("ready", async () => {
 
   const commands = [
 
-    // CRIAR FILA
     new SlashCommandBuilder()
       .setName("criarfila")
       .setDescription("Criar nova fila")
@@ -58,10 +55,9 @@ client.once("ready", async () => {
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON(),
 
-    // REMOVER MAPA
     new SlashCommandBuilder()
       .setName("removermapa")
-      .setDescription("Remover uma fila pelo número")
+      .setDescription("Remover uma fila")
       .addIntegerOption(option =>
         option.setName("numero")
           .setDescription("Número da fila")
@@ -105,7 +101,8 @@ client.on("interactionCreate", async (interaction) => {
           limite,
           modo,
           valor,
-          numero: contador
+          numero: contador,
+          ativa: true
         };
 
         const embed = new EmbedBuilder()
@@ -149,17 +146,16 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.reply({ content: "❌ Fila não encontrada.", ephemeral: true });
         }
 
-        // liberar jogadores
         filas[idFila].jogadores.forEach(id => jogadoresEmFila.delete(id));
 
         delete filas[idFila];
 
-        return interaction.reply({ content: `✅ Fila ${numero} removida com sucesso.` });
+        return interaction.reply({ content: `✅ Fila ${numero} removida.` });
       }
     }
 
     /* =========================
-       BOTÕES FILA
+       ENTRAR / SAIR FILA
     ========================= */
 
     if (
@@ -174,13 +170,12 @@ client.on("interactionCreate", async (interaction) => {
       const acao = partes[0];
       const idFila = partes[1] + "_" + partes[2];
 
-      if (!filas[idFila]) return;
-
       let fila = filas[idFila];
+      if (!fila || !fila.ativa) return;
+
       const userId = interaction.user.id;
 
       if (acao === "entrar") {
-
         if (jogadoresEmFila.has(userId)) return;
 
         fila.jogadores.push(userId);
@@ -213,6 +208,8 @@ client.on("interactionCreate", async (interaction) => {
 
       if (fila.jogadores.length === fila.limite) {
 
+        fila.ativa = false;
+
         const guild = interaction.guild;
 
         const canal = await guild.channels.create({
@@ -239,10 +236,9 @@ client.on("interactionCreate", async (interaction) => {
           components: [confirmRow]
         });
 
-        // 🔥 REMOVE TODOS DA FILA (CORREÇÃO DO BUG)
         fila.jogadores.forEach(id => jogadoresEmFila.delete(id));
 
-        delete filas[idFila];
+        await interaction.message.edit({ components: [] });
       }
     }
 
