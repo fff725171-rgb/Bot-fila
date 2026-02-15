@@ -12,8 +12,6 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-const TOKEN = "SEU_TOKEN_AQUI";
-
 let filas = {};
 let jogadoresEmFila = new Set();
 let contadorFila = 1;
@@ -64,7 +62,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =========================
-  // ENTRAR NA FILA
+  // ENTRAR
   // =========================
   if (customId.startsWith("entrar_")) {
 
@@ -91,9 +89,7 @@ client.on("interactionCreate", async (interaction) => {
       )
       .setColor("Blue");
 
-    await interaction.update({
-      embeds: [embed]
-    });
+    await interaction.update({ embeds: [embed] });
 
     // 🔥 SE COMPLETAR
     if (fila.jogadores.length === fila.limite) {
@@ -117,7 +113,7 @@ client.on("interactionCreate", async (interaction) => {
 
       await canal.send("🔥 Sala criada para o X1!");
 
-      // Remove jogadores do sistema
+      // limpar sistema
       fila.jogadores.forEach(id => jogadoresEmFila.delete(id));
 
       const embedFinal = new EmbedBuilder()
@@ -135,7 +131,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // =========================
-  // SAIR DA FILA
+  // SAIR
   // =========================
   if (customId.startsWith("sair_")) {
 
@@ -161,10 +157,8 @@ client.on("interactionCreate", async (interaction) => {
       )
       .setColor("Blue");
 
-    await interaction.update({
-      embeds: [embed]
-    });
+    await interaction.update({ embeds: [embed] });
   }
 });
 
-client.login(TOKEN);
+client.login(process.env.TOKEN);
