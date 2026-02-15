@@ -1,7 +1,6 @@
 {
-  "name": "bot-x1",
+  "name": "bot-x1-completo",
   "version": "1.0.0",
-  "description": "Bot de fila X1",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
